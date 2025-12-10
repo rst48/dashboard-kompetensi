@@ -88,9 +88,9 @@ df.columns = df.columns.str.strip()
 
 # nama kolom penting
 KOMPETENSI_COL = "4. Kompetensi yang perlu ditingkatkan"
-HAMBATAN_COL = "5. Hambatan kompetensi"
-PELATIHAN_COL = "6. Jenis pelatihan"
-METODE_COL = "10. Metode pembelajaran"
+HAMBATAN_COL   = "5. Hambatan kompetensi"
+PELATIHAN_COL  = "6. Jenis pelatihan"
+METODE_COL     = "10. Metode pembelajaran"
 
 # ===============================
 # 4. Ringkasan umum
@@ -250,9 +250,9 @@ if "Nama" in df.columns:
     jab = row.get("Jabatan", "-")
     st.markdown(f"**Jabatan:** {jab}")
 
-    komp = row.get(KOMPETENSI_COL, "-")
-    hamb = row.get(HAMBATAN_COL, "-")
-    pel = row.get(PELATIHAN_COL, "-")
+    komp   = row.get(KOMPETENSI_COL, "-")
+    hamb   = row.get(HAMBATAN_COL, "-")
+    pel    = row.get(PELATIHAN_COL, "-")
     metode = row.get(METODE_COL, "-")
 
     st.markdown(f"- **Kompetensi yang perlu ditingkatkan:** {komp}")
@@ -275,8 +275,6 @@ st.write(
     "Jawaban diambil dari isi CSV ini, bukan dari internet."
 )
 
-# Bangun indeks TF-IDF untuk Q&A
-@st.cache_resource
 def build_qa_index(df: pd.DataFrame):
     # Gabungkan beberapa kolom penting jadi satu teks per baris
     cols_candidate = []
@@ -288,18 +286,15 @@ def build_qa_index(df: pd.DataFrame):
     if not cols_candidate:
         return None, None, None
 
-    corpus = (
-        df[cols_candidate]
-        .fillna("")
-        .astype(str)
-        .agg(" ", axis=1)
-        .apply(clean_text)
-    )
+    sub = df[cols_candidate].fillna("").astype(str)
+    # Gabungkan isi semua kolom menjadi satu string per baris
+    corpus = sub.apply(lambda row: " ".join(row.values), axis=1)
+    corpus_clean = corpus.apply(clean_text)
 
     vectorizer = TfidfVectorizer(max_features=3000)
-    X = vectorizer.fit_transform(corpus)
+    X = vectorizer.fit_transform(corpus_clean)
 
-    return vectorizer, X, corpus
+    return vectorizer, X, corpus_clean
 
 vectorizer, X_corpus, corpus = build_qa_index(df)
 
@@ -307,38 +302,37 @@ if vectorizer is None:
     st.info("Belum bisa membuat indeks Q&A karena kolom-kolom penting tidak lengkap.")
 else:
     question = st.text_input("Tulis pertanyaanmu di sini:")
-
     top_k = st.slider("Jumlah jawaban yang ditampilkan", 1, 5, 3)
 
-    if st.button("🔍 Cari Jawaban") and question.strip():
-        q_clean = clean_text(question)
-        q_vec = vectorizer.transform([q_clean])
-        sims = cosine_similarity(q_vec, X_corpus)[0]
-        top_idx = sims.argsort()[::-1][:top_k]
+    if st.button("🔍 Cari Jawaban"):
+        if not question.strip():
+            st.warning("Isi dulu pertanyaannya ya 😊")
+        else:
+            q_clean = clean_text(question)
+            q_vec = vectorizer.transform([q_clean])
+            sims = cosine_similarity(q_vec, X_corpus)[0]
+            top_idx = sims.argsort()[::-1][:top_k]
 
-        st.markdown("#### Hasil yang paling relevan:")
+            st.markdown("#### Hasil yang paling relevan:")
 
-        for rank, idx in enumerate(top_idx, start=1):
-            row = df.iloc[idx]
-            skor = sims[idx]
+            for rank, idx in enumerate(top_idx, start=1):
+                row = df.iloc[idx]
+                skor = sims[idx]
 
-            st.markdown(f"**#{rank} – Skor kemiripan: {skor:.2f}**")
+                st.markdown(f"**#{rank} – Skor kemiripan: {skor:.2f}**")
 
-            nama_r = row.get("Nama", "-")
-            jab_r = row.get("Jabatan", "-")
-            kode_r = row.get("KODE", "-")
-            komp_r = row.get(KOMPETENSI_COL, "-") if KOMPETENSI_COL in df.columns else "-"
-            hamb_r = row.get(HAMBATAN_COL, "-") if HAMBATAN_COL in df.columns else "-"
-            pel_r = row.get(PELATIHAN_COL, "-") if PELATIHAN_COL in df.columns else "-"
-            met_r = row.get(METODE_COL, "-") if METODE_COL in df.columns else "-"
+                nama_r = row.get("Nama", "-")
+                jab_r  = row.get("Jabatan", "-")
+                kode_r = row.get("KODE", "-")
+                komp_r = row.get(KOMPETENSI_COL, "-") if KOMPETENSI_COL in df.columns else "-"
+                hamb_r = row.get(HAMBATAN_COL, "-")   if HAMBATAN_COL in df.columns else "-"
+                pel_r  = row.get(PELATIHAN_COL, "-")  if PELATIHAN_COL in df.columns else "-"
+                met_r  = row.get(METODE_COL, "-")     if METODE_COL in df.columns else "-"
 
-            st.markdown(f"- **Nama:** {nama_r}")
-            st.markdown(f"- **Jabatan / Kode:** {jab_r} ({kode_r})")
-            st.markdown(f"- **Kompetensi yang perlu ditingkatkan:** {komp_r}")
-            st.markdown(f"- **Hambatan kompetensi:** {hamb_r}")
-            st.markdown(f"- **Jenis pelatihan yang diinginkan:** {pel_r}")
-            st.markdown(f"- **Metode pembelajaran:** {met_r}")
-            st.markdown("---")
-
-    elif st.button("🔍 Cari Jawaban", key="empty_search") and not question.strip():
-        st.warning("Isi dulu pertanyaannya ya 😊")
+                st.markdown(f"- **Nama:** {nama_r}")
+                st.markdown(f"- **Jabatan / Kode:** {jab_r} ({kode_r})")
+                st.markdown(f"- **Kompetensi yang perlu ditingkatkan:** {komp_r}")
+                st.markdown(f"- **Hambatan kompetensi:** {hamb_r}")
+                st.markdown(f"- **Jenis pelatihan yang diinginkan:** {pel_r}")
+                st.markdown(f"- **Metode pembelajaran:** {met_r}")
+                st.markdown("---")
