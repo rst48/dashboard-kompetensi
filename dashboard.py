@@ -7,6 +7,9 @@ import pandas as pd
 import re
 from collections import Counter
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 # ===============================
 # 1. Fungsi bantu
 # ===============================
@@ -34,6 +37,7 @@ def get_top_words(series, n=15):
     counter = Counter(all_words)
     return counter.most_common(n)
 
+
 # ===============================
 # 2. Layout utama
 # ===============================
@@ -41,7 +45,7 @@ def get_top_words(series, n=15):
 st.set_page_config(page_title="Ringkasan CPNS PSEKP 2025", layout="wide")
 
 st.title("📊 Dashboard Ringkasan Kompetensi CPNS PSEKP 2025")
-st.write("Ringkasan kebutuhan kompetensi, hambatan, dan pelatihan dari data CPNS PSEKP 2025.")
+st.write("Ringkasan kebutuhan kompetensi, hambatan, pelatihan, dan tanya jawab berbasis data CPNS PSEKP 2025.")
 
 # ===============================
 # 3. Baca data CSV (format spesial)
@@ -72,18 +76,21 @@ if not read_ok or df is None:
 # berarti seluruh baris masih jadi satu string → kita pecah manual.
 if len(df.columns) == 1 and ";" in df.columns[0]:
     raw_header = df.columns[0]
-    # header asli ada di nama kolom (karena baris pertama jadi header)
     header_str = raw_header.strip().strip('"')
     header_cols = [h.strip() for h in header_str.split(";")]
 
-    # baris data: isi kolom tunggal
     raw_rows = df.iloc[:, 0].astype(str)
-    # pecah isi baris jadi kolom sesuai ';'
     df = raw_rows.str.split(";", expand=True)
     df.columns = header_cols
 
 # rapikan nama kolom
 df.columns = df.columns.str.strip()
+
+# nama kolom penting
+KOMPETENSI_COL = "4. Kompetensi yang perlu ditingkatkan"
+HAMBATAN_COL = "5. Hambatan kompetensi"
+PELATIHAN_COL = "6. Jenis pelatihan"
+METODE_COL = "10. Metode pembelajaran"
 
 # ===============================
 # 4. Ringkasan umum
@@ -103,8 +110,7 @@ with col3:
     st.metric("Kode Jabatan / JF Unik", df["KODE"].nunique() if "KODE" in df.columns else "-")
 
 with col4:
-    met_col = "10. Metode pembelajaran"
-    st.metric("Metode Belajar Unik", df[met_col].nunique() if met_col in df.columns else "-")
+    st.metric("Metode Belajar Unik", df[METODE_COL].nunique() if METODE_COL in df.columns else "-")
 
 st.markdown("---")
 
@@ -119,24 +125,20 @@ st.markdown("---")
 
 st.subheader("🧠 Kompetensi yang Paling Banyak Dibutuhkan")
 
-kompetensi_col = "4. Kompetensi yang perlu ditingkatkan"
-
-if kompetensi_col not in df.columns:
-    st.error(f"Kolom '{kompetensi_col}' tidak ditemukan di CSV. Nama kolom yang ada: {list(df.columns)}")
+if KOMPETENSI_COL not in df.columns:
+    st.error(f"Kolom '{KOMPETENSI_COL}' tidak ditemukan di CSV. Nama kolom yang ada: {list(df.columns)}")
 else:
-    # 5.1. Ringkasan per frasa (isi apa adanya)
     st.markdown("### 🔹 Top 10 Frasa Jawaban Kompetensi")
-    value_counts = df[kompetensi_col].fillna("Tidak diisi").value_counts().head(10)
+    value_counts = df[KOMPETENSI_COL].fillna("Tidak diisi").value_counts().head(10)
     st.bar_chart(value_counts)
     st.table(
         value_counts.reset_index().rename(
-            columns={"index": "Frasa Kompetensi", kompetensi_col: "Jumlah Responden"}
+            columns={"index": "Frasa Kompetensi", KOMPETENSI_COL: "Jumlah Responden"}
         )
     )
 
-    # 5.2. Ringkasan per kata (kata kunci terbesar)
     st.markdown("### 🔹 Top 20 Kata Kunci Kompetensi")
-    top_words = get_top_words(df[kompetensi_col], n=20)
+    top_words = get_top_words(df[KOMPETENSI_COL], n=20)
     if top_words:
         top_df = pd.DataFrame(top_words, columns=["Kata", "Frekuensi"])
         st.bar_chart(top_df.set_index("Kata"))
@@ -151,18 +153,16 @@ else:
 st.markdown("---")
 st.subheader("🚧 Hambatan Kompetensi yang Sering Muncul")
 
-hambatan_col = "5. Hambatan kompetensi"
-
-if hambatan_col in df.columns:
-    hambatan_counts = df[hambatan_col].fillna("Tidak diisi").value_counts().head(10)
+if HAMBATAN_COL in df.columns:
+    hambatan_counts = df[HAMBATAN_COL].fillna("Tidak diisi").value_counts().head(10)
     st.bar_chart(hambatan_counts)
     st.table(
         hambatan_counts.reset_index().rename(
-            columns={"index": "Hambatan", hambatan_col: "Jumlah Responden"}
+            columns={"index": "Hambatan", HAMBATAN_COL: "Jumlah Responden"}
         )
     )
 else:
-    st.info("Kolom '5. Hambatan kompetensi' tidak ditemukan.")
+    st.info(f"Kolom '{HAMBATAN_COL}' tidak ditemukan.")
 
 # ===============================
 # 7. Jenis pelatihan yang paling banyak dipilih
@@ -171,18 +171,16 @@ else:
 st.markdown("---")
 st.subheader("🎓 Jenis Pelatihan yang Paling Banyak Dipilih")
 
-pelatihan_col = "6. Jenis pelatihan"
-
-if pelatihan_col in df.columns:
-    pel_counts = df[pelatihan_col].fillna("Tidak diisi").value_counts().head(10)
+if PELATIHAN_COL in df.columns:
+    pel_counts = df[PELATIHAN_COL].fillna("Tidak diisi").value_counts().head(10)
     st.bar_chart(pel_counts)
     st.table(
         pel_counts.reset_index().rename(
-            columns={"index": "Jenis Pelatihan", pelatihan_col: "Jumlah Responden"}
+            columns={"index": "Jenis Pelatihan", PELATIHAN_COL: "Jumlah Responden"}
         )
     )
 else:
-    st.info("Kolom '6. Jenis pelatihan' tidak ditemukan.")
+    st.info(f"Kolom '{PELATIHAN_COL}' tidak ditemukan.")
 
 # ===============================
 # 8. Metode pembelajaran yang diminati
@@ -191,18 +189,16 @@ else:
 st.markdown("---")
 st.subheader("📚 Metode Pembelajaran yang Paling Diminati")
 
-metode_col = "10. Metode pembelajaran"
-
-if metode_col in df.columns:
-    met_counts = df[metode_col].fillna("Tidak diisi").value_counts().head(10)
+if METODE_COL in df.columns:
+    met_counts = df[METODE_COL].fillna("Tidak diisi").value_counts().head(10)
     st.bar_chart(met_counts)
     st.table(
         met_counts.reset_index().rename(
-            columns={"index": "Metode Pembelajaran", metode_col: "Jumlah Responden"}
+            columns={"index": "Metode Pembelajaran", METODE_COL: "Jumlah Responden"}
         )
     )
 else:
-    st.info("Kolom '10. Metode pembelajaran' tidak ditemukan.")
+    st.info(f"Kolom '{METODE_COL}' tidak ditemukan.")
 
 # ===============================
 # 9. Ringkasan naratif otomatis
@@ -213,28 +209,24 @@ st.subheader("📝 Ringkasan Naratif Otomatis CPNS PSEKP 2025")
 
 summary_parts = []
 
-# Kompetensi utama (kata kunci)
-if kompetensi_col in df.columns:
-    top_words = get_top_words(df[kompetensi_col], n=7)
+if KOMPETENSI_COL in df.columns:
+    top_words = get_top_words(df[KOMPETENSI_COL], n=7)
     if top_words:
         top_comp = ", ".join([w for w, _ in top_words])
         summary_parts.append(f"- **Kompetensi yang paling sering muncul:** {top_comp}")
 
-# Hambatan utama
-if hambatan_col in df.columns:
-    hambatan_top = df[hambatan_col].dropna().value_counts().head(3).index.tolist()
+if HAMBATAN_COL in df.columns:
+    hambatan_top = df[HAMBATAN_COL].dropna().value_counts().head(3).index.tolist()
     if hambatan_top:
         summary_parts.append(f"- **Hambatan utama:** { '; '.join(hambatan_top) }")
 
-# Pelatihan utama
-if pelatihan_col in df.columns:
-    pel_top = df[pelatihan_col].dropna().value_counts().head(3).index.tolist()
+if PELATIHAN_COL in df.columns:
+    pel_top = df[PELATIHAN_COL].dropna().value_counts().head(3).index.tolist()
     if pel_top:
         summary_parts.append(f"- **Jenis pelatihan yang paling banyak dipilih:** { '; '.join(pel_top) }")
 
-# Metode belajar utama
-if metode_col in df.columns:
-    met_top = df[metode_col].dropna().value_counts().head(2).index.tolist()
+if METODE_COL in df.columns:
+    met_top = df[METODE_COL].dropna().value_counts().head(2).index.tolist()
     if met_top:
         summary_parts.append(f"- **Metode belajar favorit:** { '; '.join(met_top) }")
 
@@ -258,10 +250,10 @@ if "Nama" in df.columns:
     jab = row.get("Jabatan", "-")
     st.markdown(f"**Jabatan:** {jab}")
 
-    komp = row.get(kompetensi_col, "-")
-    hamb = row.get(hambatan_col, "-")
-    pel = row.get(pelatihan_col, "-")
-    metode = row.get(metode_col, "-")
+    komp = row.get(KOMPETENSI_COL, "-")
+    hamb = row.get(HAMBATAN_COL, "-")
+    pel = row.get(PELATIHAN_COL, "-")
+    metode = row.get(METODE_COL, "-")
 
     st.markdown(f"- **Kompetensi yang perlu ditingkatkan:** {komp}")
     st.markdown(f"- **Hambatan kompetensi:** {hamb}")
@@ -269,3 +261,84 @@ if "Nama" in df.columns:
     st.markdown(f"- **Metode pembelajaran pilihan:** {metode}")
 else:
     st.info("Kolom 'Nama' tidak ditemukan.")
+
+# ===============================
+# 11. Q&A: “AI” berbasis CSV
+# ===============================
+
+st.markdown("---")
+st.subheader("🤖 Tanya Jawab Berbasis Data CPNS")
+
+st.write(
+    "Ketik pertanyaanmu (misal: *'kompetensi apa yang banyak dibutuhkan analis kebijakan?'* "
+    "atau *'pelatihan apa yang sering muncul untuk PKSTI?'*). "
+    "Jawaban diambil dari isi CSV ini, bukan dari internet."
+)
+
+# Bangun indeks TF-IDF untuk Q&A
+@st.cache_resource
+def build_qa_index(df: pd.DataFrame):
+    # Gabungkan beberapa kolom penting jadi satu teks per baris
+    cols_candidate = []
+    for col in ["Nama", "Jabatan", "KODE",
+                KOMPETENSI_COL, HAMBATAN_COL, PELATIHAN_COL, METODE_COL]:
+        if col in df.columns:
+            cols_candidate.append(col)
+
+    if not cols_candidate:
+        return None, None, None
+
+    corpus = (
+        df[cols_candidate]
+        .fillna("")
+        .astype(str)
+        .agg(" ", axis=1)
+        .apply(clean_text)
+    )
+
+    vectorizer = TfidfVectorizer(max_features=3000)
+    X = vectorizer.fit_transform(corpus)
+
+    return vectorizer, X, corpus
+
+vectorizer, X_corpus, corpus = build_qa_index(df)
+
+if vectorizer is None:
+    st.info("Belum bisa membuat indeks Q&A karena kolom-kolom penting tidak lengkap.")
+else:
+    question = st.text_input("Tulis pertanyaanmu di sini:")
+
+    top_k = st.slider("Jumlah jawaban yang ditampilkan", 1, 5, 3)
+
+    if st.button("🔍 Cari Jawaban") and question.strip():
+        q_clean = clean_text(question)
+        q_vec = vectorizer.transform([q_clean])
+        sims = cosine_similarity(q_vec, X_corpus)[0]
+        top_idx = sims.argsort()[::-1][:top_k]
+
+        st.markdown("#### Hasil yang paling relevan:")
+
+        for rank, idx in enumerate(top_idx, start=1):
+            row = df.iloc[idx]
+            skor = sims[idx]
+
+            st.markdown(f"**#{rank} – Skor kemiripan: {skor:.2f}**")
+
+            nama_r = row.get("Nama", "-")
+            jab_r = row.get("Jabatan", "-")
+            kode_r = row.get("KODE", "-")
+            komp_r = row.get(KOMPETENSI_COL, "-") if KOMPETENSI_COL in df.columns else "-"
+            hamb_r = row.get(HAMBATAN_COL, "-") if HAMBATAN_COL in df.columns else "-"
+            pel_r = row.get(PELATIHAN_COL, "-") if PELATIHAN_COL in df.columns else "-"
+            met_r = row.get(METODE_COL, "-") if METODE_COL in df.columns else "-"
+
+            st.markdown(f"- **Nama:** {nama_r}")
+            st.markdown(f"- **Jabatan / Kode:** {jab_r} ({kode_r})")
+            st.markdown(f"- **Kompetensi yang perlu ditingkatkan:** {komp_r}")
+            st.markdown(f"- **Hambatan kompetensi:** {hamb_r}")
+            st.markdown(f"- **Jenis pelatihan yang diinginkan:** {pel_r}")
+            st.markdown(f"- **Metode pembelajaran:** {met_r}")
+            st.markdown("---")
+
+    elif st.button("🔍 Cari Jawaban", key="empty_search") and not question.strip():
+        st.warning("Isi dulu pertanyaannya ya 😊")
