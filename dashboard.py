@@ -1,5 +1,6 @@
 # Jalankan lokal: streamlit run dashboard.py
-# Di Streamlit Cloud: pastikan file data_kompetensi.csv (pakai ; sebagai pemisah) ada di repo yang sama.
+# Di Streamlit Cloud: pastikan file data_kompetensi.csv ada di repo yang sama.
+# Format file mengikuti contoh yang kamu kirim: seluruh baris diapit tanda kutip, dipisah dengan ;
 
 import streamlit as st
 import pandas as pd
@@ -21,7 +22,7 @@ def clean_text(text):
 STOPWORDS_ID = set([
     "dan", "yang", "untuk", "dalam", "pada", "dengan", "agar", "dapat",
     "adalah", "atau", "di", "ke", "sebagai", "dari", "itu", "terhadap",
-    "akan", "dalam", "yang", "saya", "dalam"
+    "akan", "yang", "saya"
 ])
 
 def get_top_words(series, n=15):
@@ -43,27 +44,45 @@ st.title("📊 Dashboard Ringkasan Kompetensi CPNS PSEKP 2025")
 st.write("Ringkasan kebutuhan kompetensi, hambatan, dan pelatihan dari data CPNS PSEKP 2025.")
 
 # ===============================
-# 3. Baca data CSV (pakai ; dan beberapa encoding)
+# 3. Baca data CSV (format spesial)
 # ===============================
 
 DATA_PATH = "data_kompetensi.csv"
 
 df = None
+read_ok = False
+
+# Pertama: baca apa adanya (pandas anggap default delimiter koma)
 for enc in ["utf-8", "latin1", "cp1252"]:
     try:
-        df = pd.read_csv(DATA_PATH, encoding=enc, sep=";", quotechar='"')
+        df = pd.read_csv(DATA_PATH, encoding=enc)
+        read_ok = True
         break
     except Exception:
         continue
 
-if df is None:
+if not read_ok or df is None:
     st.error(
         f"Gagal membaca '{DATA_PATH}' dengan encoding utf-8/latin1/cp1252.\n"
-        "Coba simpan ulang CSV sebagai UTF-8 dan pastikan pemisahnya ';'."
+        "Coba simpan ulang CSV sebagai UTF-8."
     )
     st.stop()
 
-# Rapikan nama kolom (hapus spasi di awal/akhir)
+# Jika hasil baca cuma 1 kolom dan di dalam namanya masih ada ';',
+# berarti seluruh baris masih jadi satu string → kita pecah manual.
+if len(df.columns) == 1 and ";" in df.columns[0]:
+    raw_header = df.columns[0]
+    # header asli ada di nama kolom (karena baris pertama jadi header)
+    header_str = raw_header.strip().strip('"')
+    header_cols = [h.strip() for h in header_str.split(";")]
+
+    # baris data: isi kolom tunggal
+    raw_rows = df.iloc[:, 0].astype(str)
+    # pecah isi baris jadi kolom sesuai ';'
+    df = raw_rows.str.split(";", expand=True)
+    df.columns = header_cols
+
+# rapikan nama kolom
 df.columns = df.columns.str.strip()
 
 # ===============================
@@ -78,22 +97,14 @@ with col1:
     st.metric("Jumlah Peserta", len(df))
 
 with col2:
-    if "Jabatan" in df.columns:
-        st.metric("Jabatan Unik", df["Jabatan"].nunique())
-    else:
-        st.metric("Jabatan Unik", "-")
+    st.metric("Jabatan Unik", df["Jabatan"].nunique() if "Jabatan" in df.columns else "-")
 
 with col3:
-    if "KODE" in df.columns:
-        st.metric("Kode Jabatan / JF Unik", df["KODE"].nunique())
-    else:
-        st.metric("Kode Jabatan / JF Unik", "-")
+    st.metric("Kode Jabatan / JF Unik", df["KODE"].nunique() if "KODE" in df.columns else "-")
 
 with col4:
-    if "10. Metode pembelajaran" in df.columns:
-        st.metric("Metode Belajar Unik", df["10. Metode pembelajaran"].nunique())
-    else:
-        st.metric("Metode Belajar Unik", "-")
+    met_col = "10. Metode pembelajaran"
+    st.metric("Metode Belajar Unik", df[met_col].nunique() if met_col in df.columns else "-")
 
 st.markdown("---")
 
@@ -111,7 +122,7 @@ st.subheader("🧠 Kompetensi yang Paling Banyak Dibutuhkan")
 kompetensi_col = "4. Kompetensi yang perlu ditingkatkan"
 
 if kompetensi_col not in df.columns:
-    st.error(f"Kolom '{kompetensi_col}' tidak ditemukan di CSV. Cek header file.")
+    st.error(f"Kolom '{kompetensi_col}' tidak ditemukan di CSV. Nama kolom yang ada: {list(df.columns)}")
 else:
     # 5.1. Ringkasan per frasa (isi apa adanya)
     st.markdown("### 🔹 Top 10 Frasa Jawaban Kompetensi")
@@ -233,7 +244,7 @@ else:
     st.write("Belum cukup data untuk membuat ringkasan naratif.")
 
 # ===============================
-# 10. Detail per orang (opsional)
+# 10. Detail per CPNS
 # ===============================
 
 st.markdown("---")
